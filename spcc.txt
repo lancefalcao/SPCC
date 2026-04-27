@@ -1,0 +1,884 @@
+TRIPLES and Quadraples / Three AC:
+
+import re
+
+def generate_all(expr):
+    lhs, rhs = expr.split('=') if '=' in expr else (None, expr)
+    ops, vals, quads = [], [], []
+    prec = {'+': 1, '-': 1, '*': 2, '/': 2}
+
+    # Helper function to process operations
+    def apply():
+        o, b, a = ops.pop(), vals.pop(), vals.pop()
+        quads.append([o, a, b, f"t{len(quads)+1}"]) 
+        vals.append(quads[-1][3])
+
+    # Parse tokens and build Quadruples dynamically
+    for tk in re.findall(r'[a-zA-Z_]\w*|\d+|[+\-*/()]', rhs):
+        if tk.isalnum(): vals.append(tk)
+        elif tk == '(': ops.append(tk)
+        elif tk == ')':
+            while ops[-1] != '(': apply()
+            ops.pop()
+        else:
+            while ops and ops[-1] in prec and prec.get(ops[-1], 0) >= prec[tk]: apply()
+            ops.append(tk)
+            
+    while ops: apply()
+    if lhs: quads.append(['=', vals[-1], '-', lhs.strip()])
+
+    # Print 3AC
+    print("\n--- Three Address Code ---")
+    for q in quads: 
+        print(f"{q[3]} = {q[1]} {q[0]} {q[2]}" if q[0] != '=' else f"{q[3]} = {q[1]}")
+    
+    # Print Quadruples using basic string formatting
+    print("\n--- Quadruples ---")
+    print(f"{'Op':<5} | {'Arg1':<6} | {'Arg2':<6} | {'Result'}")
+    print("-" * 35)
+    for q in quads: 
+        print(f"{q[0]:<5} | {q[1]:<6} | {q[2]:<6} | {q[3]}")
+    
+    # Print Triples by dynamically swapping 'tN' with '(N-1)'
+    print("\n--- Triples ---")
+    sub_t = lambda v: re.sub(r't(\d+)', lambda m: f"({int(m.group(1))-1})", str(v))
+    print(f"{'Idx':<5} | {'Op':<5} | {'Arg1':<6} | {'Arg2'}")
+    print("-" * 35)
+    for i, q in enumerate(quads):
+        print(f"{i:<5} | {q[0]:<5} | {sub_t(q[1]):<6} | {sub_t(q[2] if q[0] != '=' else q[3])}")
+
+if __name__ == "__main__":
+    generate_all(input("Enter expression: ") or "x = a + b * c")
+
+
+
+
+
+
+
+LEXICAL Analysis:
+import re
+
+class Node:
+    def __init__(self, value, left=None, right=None):
+        self.value, self.left, self.right = value, left, right
+
+def get_tokens(expression):
+    tokens = re.findall(r'\d+|[a-zA-Z_]\w*|[=+\-*/()]', expression)
+    print(f"\n[1] Tokens List: {tokens}")
+    return tokens
+
+def build_tree(tokens, min_precedence=0):
+    node = Node(tokens.pop(0))
+    precedence = {'=': 1, '+': 2, '-': 2, '*': 3, '/': 3}
+    
+    while tokens and precedence.get(tokens[0], 0) >= min_precedence:
+        operator = tokens.pop(0)
+        next_precedence = precedence[operator] + (operator != '=')
+        node = Node(operator, node, build_tree(tokens, next_precedence))
+        
+    return node
+
+def print_tree(node):
+    def get_lines(n):
+        if not n: return [], 0, 0, 0
+        text = f" {n.value} "
+        left_lines, left_width, left_height, left_center = get_lines(n.left)
+        right_lines, right_width, right_height, right_center = get_lines(n.right)
+        
+        total_width = max(len(text), left_width + right_width + 2)
+        result = [text.center(total_width)]
+        
+        if n.left or n.right:
+            connector = (' '*(left_center+1) + '┌' + '─'*(left_width-left_center-1)) if n.left else (' '*(total_width//2))
+            connector += '┴' if n.left and n.right else '_|' if n.left else '|_'
+            result.append((connector + ('─'*right_center + '-|' if n.right else '')).center(total_width))
+            
+        for i in range(max(left_height, right_height)):
+            left_str = left_lines[i] if i < left_height else ' ' * left_width
+            right_str = right_lines[i] if i < right_height else ' ' * right_width
+            result.append(left_str + '  ' + right_str)
+            
+        return result, total_width, len(result), total_width // 2
+        
+    print(f"\n--- SYNTAX TREE ---")
+    if node: print("\n".join(get_lines(node)[0]))
+
+if __name__ == "__main__":
+    tokens = get_tokens(input("Enter Code: ") or "a = b * 10 / 5")
+    root_node = build_tree(tokens)
+    print_tree(root_node)
+
+
+
+
+
+
+OPERATOR PRECEDENCE:
+import re
+
+TERMINALS = ['+', '-', '*', '/', 'i', '$']
+
+# JUGAAD 1: Use a dictionary matrix instead of 35 lines of if/else logic!
+MATRIX = {
+    '+': "> > < < < >",
+    '-': "> > < < < >",
+    '*': "> > > > < >",
+    '/': "> > > > < >",
+    'i': "> > > > E >",
+    '$': "< < < < < A"
+}
+
+def get_rel(top, inp):
+    # Splits the string above by space and grabs the relation based on column index
+    return MATRIX[top].split()[TERMINALS.index(inp)]
+
+def print_table():
+    print("\n--- OUTPUT 1: PRECEDENCE TABLE (Generated via Matrix) ---")
+    print("-" * 55)
+    print("    |" + "".join([f"   {t}   |" for t in TERMINALS]))
+    print("-" * 55)
+    for r in TERMINALS:
+        print(f"  {r} |" + "".join([f"   {get_rel(r, c)}   |" for c in TERMINALS]))
+    print("-" * 55)
+
+def parse(user_input):
+    print(f"\nParsing Input: {user_input}\n\n--- OUTPUT 2: STACK IMPLEMENTATION ---")
+    inp = re.sub(r'[a-zA-Z_]\w*', 'i', user_input) + '$'
+    stack, ptr = ['$'], 0
+    
+    print(f"{'STACK':<15} {'INPUT':<15} {'ACTION'}")
+    print("-" * 45)
+    
+    while ptr < len(inp):
+        curr = inp[ptr]
+        top = stack[-1] # JUGAAD 2: We only push terminals, so the top is ALWAYS stack[-1]
+        rel = get_rel(top, curr)
+        
+        d_stack, d_inp = "".join(stack), inp[ptr:]
+        
+        if rel == '<': # Shift
+            print(f"{d_stack:<15} {d_inp:<15} Shift")
+            stack.append(curr)
+            ptr += 1
+        elif rel == '>': # Reduce
+            print(f"{d_stack:<15} {d_inp:<15} Reduce")
+            while True:
+                popped = stack.pop()
+                if get_rel(stack[-1], popped) == '<': 
+                    break
+        elif rel == 'A':
+            print(f"{d_stack:<15} {d_inp:<15} ACCEPTED")
+            break
+        else:
+            print(f"{d_stack:<15} {d_inp:<15} REJECTED (Error)")
+            break
+
+if __name__ == "__main__":
+    print_table()
+    print("\n[INFO] Enter your expression. You can use any variables (a, b, id) and operators (+, -, *, /)")
+    parse(input("Enter string to parse: ").strip() or "a+b*c*d")
+
+
+
+
+
+
+
+
+CODE OPTIMIZATION:
+import re
+
+def optimize_code(source_lines):
+    aliases, exprs, out = {}, {}, []
+
+    for line in source_lines:
+        line = line.strip()
+        if not line or line.startswith("//"): continue
+        
+        lhs, rhs = [p.strip() for p in line.split("=")]
+
+        # Regex Variable Propagation
+        for k, v in aliases.items():
+            rhs = re.sub(rf'\b{k}\b', v, rhs)
+
+        # Constant Folding via eval()
+        try: rhs = str(eval(rhs))
+        except Exception: pass
+
+        # Unified Copy Propagation & CSE Logic
+        if rhs.isalnum() and not rhs.isdigit():
+            aliases[lhs] = rhs # Pure assignment, skip output
+        elif rhs in exprs:
+            out.append(f"{lhs} = {exprs[rhs]}") # CSE Hit
+        else:
+            exprs[rhs] = lhs
+            out.append(f"{lhs} = {rhs}")
+            if rhs.isdigit(): aliases[lhs] = rhs # Allow constant propagation
+
+    return out
+
+if __name__ == "__main__":
+    print("Enter code line by line (Press Enter on an empty line to finish):")
+    lines = []
+    
+    # JUGAAD: Dynamic user input loop instead of reading from a file
+    while True:
+        line = input("> ")
+        if not line.strip(): break
+        lines.append(line)
+        
+        
+    print("\n--- Optimized Code ---")
+    for line in optimize_code(lines): 
+        print(line)
+
+
+
+
+
+
+
+
+
+
+THREE AC:
+import re
+
+def generate_all(expr):
+    lhs, rhs = expr.split('=') if '=' in expr else (None, expr)
+    ops, vals, quads = [], [], []
+    prec = {'+': 1, '-': 1, '*': 2, '/': 2}
+
+    # Helper function to process operations
+    def apply():
+        o, b, a = ops.pop(), vals.pop(), vals.pop()
+        quads.append([o, a, b, f"t{len(quads)+1}"]) 
+        vals.append(quads[-1][3])
+
+    # Parse tokens and build Quadruples dynamically
+    for tk in re.findall(r'[a-zA-Z_]\w*|\d+|[+\-*/()]', rhs):
+        if tk.isalnum(): vals.append(tk)
+        elif tk == '(': ops.append(tk)
+        elif tk == ')':
+            while ops[-1] != '(': apply()
+            ops.pop()
+        else:
+            while ops and ops[-1] in prec and prec.get(ops[-1], 0) >= prec[tk]: apply()
+            ops.append(tk)
+            
+    while ops: apply()
+    if lhs: quads.append(['=', vals[-1], '-', lhs.strip()])
+
+    # Print 3AC
+    print("\n--- Three Address Code ---")
+    for q in quads: 
+        print(f"{q[3]} = {q[1]} {q[0]} {q[2]}" if q[0] != '=' else f"{q[3]} = {q[1]}")
+    
+if __name__ == "__main__":
+    generate_all(input("Enter expression: ") or "x = a + b * c")
+
+
+
+
+
+ASSEMBLY CODE:
+import re
+
+def generate_code(statements):
+    regs = {'R0': None, 'R1': None}
+    addrs = {}
+    ops = {'+': 'ADD', '-': 'SUB', '*': 'MUL', '/': 'DIV'}
+    
+    print("\n" + "=" * 50 + "\nCODE GENERATION TRACE\n" + "=" * 50)
+    
+    for i, stmt in enumerate(statements):
+        # JUGAAD 1: 1-line Regex Unpacking (Handles spaces automatically!)
+        x, y, op, z = re.match(r'(\w+)\s*=\s*(\w+)\s*([\+\-\*/])\s*(\w+)', stmt).groups()
+        code = []
+        
+        # JUGAAD 2: 1-line Register Allocation using next()
+        rx = addrs.get(y)
+        if not rx or not rx.startswith('R'):
+            rx = next((r for r, v in regs.items() if v is None), 'R0')
+            code.append(f"MOV {y}, {rx}")
+        
+        # Generate Instruction
+        code.append(f"{ops[op]} {addrs.get(z, z)}, {rx}")
+        
+        # Update Descriptors
+        if regs[rx]: addrs.pop(regs[rx], None)
+        regs[rx], addrs[x] = x, rx
+        
+        # JUGAAD 3: 1-line Dictionary Filtering for Final Write-back Cleanup
+        if i == len(statements) - 1:
+            code.append(f"MOV {rx}, {x}")
+            addrs[x] = f"{rx} and memory"
+            regs = {r: (v if r == rx else None) for r, v in regs.items()}
+            addrs = {k: v for k, v in addrs.items() if v.startswith(rx)}
+            
+        # Print output formatting natively
+        print(f"Statement: {stmt}\nCode Generated:\n" + "\n".join(code))
+        print("Register Descriptor:\n" + "\n".join(f"{r} contains {v}" for r, v in regs.items() if v))
+        print("Address Descriptor:\n" + "\n".join(f"{k} in {v}" for k, v in addrs.items() if v))
+        print("-" * 50)
+
+if __name__ == "__main__":
+    print("Enter 3AC statements (Press Enter on an empty line to finish):")
+    stmts = []
+    
+    while True:
+        line = input("> ")
+        if not line.strip(): break
+        stmts.append(line)
+        
+    if not stmts:
+        print("[!] No input provided. Using default test case...")
+        stmts = ["t = a - b", "u = a - c", "v = t + u", "d = v + u"]
+        
+    generate_code(stmts)
+
+
+
+
+
+
+
+
+
+Calc.y:
+
+%{
+#include <stdio.h>
+#include <stdlib.h>
+
+int yylex(void);
+int yyerror(const char *s);
+int flag = 0;
+%}
+
+%token NUM
+
+%left '+' '-'
+%left '*' '/' '%'
+%left '(' ')'
+
+%%
+
+ArithmeticExpression : E {
+    printf("\n Result = %d \n", $$);
+    return 0;
+};
+
+E : E '+' E { $$ = $1 + $3; }
+  | E '-' E { $$ = $1 - $3; }
+  | E '*' E { $$ = $1 * $3; }
+  | E '/' E { $$ = $1 / $3; }
+  | E '%' E { $$ = $1 % $3; }
+  | NUM { $$ = $1; }
+  ;
+
+%%
+
+void main() {
+    printf("\n Enter any Arithmetic Expression : \n");
+    yyparse();
+    
+    if (flag == 0) {
+        printf("\n Entered arithmetic expression is valid \n\n");
+    }
+}
+
+int yyerror(const char *s) {
+    printf("\n Entered arithmetic expression is Invalid \n\n");
+    flag = 1;
+    return 0;
+}
+
+
+
+Calc.l:
+%option noyywrap
+%{
+#include <stdio.h>
+#include <stdlib.h>
+#include "y.tab.h"
+%}
+
+%%
+
+[0-9]+ {
+    yylval = atoi(yytext);
+    return NUM;
+}
+
+[\t] ;
+
+[\n] return 0;
+
+. return yytext[0];
+
+%%
+
+
+
+
+(to run):
+bison -dy Calc.y
+gcc lex.yy.c y.tab.c -o Calc.exe
+./Calc.exe
+
+
+
+
+
+
+
+FACTORS:
+
+spcc.c
+
+#include <stdio.h>
+#include "factors.h"
+
+int main() {
+    int num;
+    
+    printf("Enter a positive integer : ");
+    scanf("%d", &num);
+    
+    if (num <= 0) {
+        printf("Please enter a positive integer greater than 0.\n");
+    }
+    else {
+        PRINT_FACTORS(num);
+    }
+    
+    return 0;
+}
+
+
+factors.h
+
+#define PRINT_FACTORS(n) \
+    do { \
+        int i; \
+        printf("Factors of %d are: ", (n)); \
+        for (i = 1; i <= (n); i++) { \
+            if ((n) % i == 0) { \
+                printf("%d ", i); \
+            } \
+        } \
+        printf("\n"); \
+    } while (0)
+
+
+
+FACTORIAL,AREA:
+spcc.c
+
+#include <stdio.h>
+#include "factors.h"
+
+int main() {
+    int choice;
+    
+    printf("1. Factorial \n");
+    printf("2. Area of Circle \n");
+    printf("3. Area of Square \n");
+    printf("Enter your choice : ");
+    scanf("%d", &choice);
+    
+    if (choice == 1) {
+        int n;
+        int fact;
+        printf("Enter a number : ");
+        scanf("%d", &n);
+        FACTORIAL(n, fact);
+        printf("Factorial of %d is %d : ", n, fact);
+    }
+    else if (choice == 2) {
+        int r;
+        printf("Enter the radius of circle : ");
+        scanf("%d", &r);
+        printf("Area of circle is : %d", AREA_CIRCLE(r));
+    }
+    else if (choice == 3) {
+        int side;
+        printf("Enter the side of square : ");
+        scanf("%d", &side);
+        printf("Area of Square is : %d", AREA_SQUARE(side));
+    }
+    else {
+        printf("\n INVALID CHOICE ! \n");
+    }
+    
+    return 0;
+}
+
+
+factors.h:
+#ifndef MYHEADER
+#define MYHEADER
+
+#define AREA_SQUARE(side) ((side) * (side))
+#define AREA_CIRCLE(radius) (3.14 * (radius) * (radius))
+
+#define FACTORIAL(n, result) { \
+    int i; \
+    result = 1; \
+    for (i = 1; i <= n; i++) { \
+        result *= i; \
+    } \
+}
+
+#endif
+
+
+
+
+calculator:
+
+spcc.c:
+
+#include <stdio.h>
+#include "calculator_lib.h"
+
+int main() {
+    float num1, num2;
+    int choice;
+    int condition = 1;
+    
+    while (condition == 1) {
+        printf("1. Addition \n");
+        printf("2. Subtraction \n");
+        printf("3. Mul \n");
+        printf("4. Div \n");
+        
+        printf("Enter your choice : ");
+        scanf("%d", &choice);
+        
+        printf("Enter two numbers : ");
+        scanf("%f %f", &num1, &num2);
+        
+        switch (choice) {
+            case 1:
+                printf("Addition : %f \n", ADD(num1, num2));
+                break;
+            case 2:
+                printf("Sub : %f \n", SUB(num1, num2));
+                break;
+            case 3:
+                printf("MUL : %f \n", MUL(num1, num2));
+                break;
+            case 4:
+                printf("DIV : %f \n", DIV(num1, num2));
+                break;
+            default:
+                printf("Sharam kar ! \n");
+                condition = 0;
+        }
+    }
+    
+    return 0;
+}
+
+
+calculator_lib.h:
+#ifndef CALCULATOR_LIB_H
+#define CALCULATOR_LIB_H
+
+#define ADD(a, b) ((a) + (b))
+#define SUB(a, b) ((a) - (b))
+#define MUL(a, b) ((a) * (b))
+#define DIV(a, b) ((b) != 0 ? ((float)(a) / (b)) : 0)
+
+#endif
+
+
+
+
+
+
+max2,max3:
+
+spcc.c:
+#include <stdio.h>
+#include "greatest.h"
+
+int main() {
+    int num1, num2, num3;
+    
+    printf("--- Greatest of Two Numbers ---\n");
+    printf("Enter two integers separated by space : ");
+    scanf("%d %d", &num1, &num2);
+    
+    PRINT_MAX2(num1, num2);
+    
+    printf("\n -- Greatest of Three Numbers ---\n");
+    printf("Enter three integers separated by space : ");
+    scanf("%d %d %d", &num1, &num2, &num3);
+    
+    PRINT_MAX3(num1, num2, num3);
+    
+    return 0;
+}
+
+greagtest.h:
+#ifndef GREATEST_H
+#define GREATEST_H
+
+#include <stdio.h>
+
+#define MAX2(a, b) ((a) > (b) ? (a) : (b))
+
+#define MAX3(a, b, c) MAX2(MAX2(a, b), c)
+
+#define PRINT_MAX2(a, b) \
+    printf("Greatest of %d and %d is : %d \n", a, b, MAX2(a, b))
+
+#define PRINT_MAX3(a, b, c) \
+    printf("Greatest of %d, %d and %d is : %d \n", a, b, c, MAX3(a, b, c))
+
+#endif
+
+
+
+
+
+
+
+Vowele and Consonants:
+vowels.l:
+%option noyywrap
+%{
+    #include <stdio.h>
+    int cv = 0, cc = 0;
+%}
+
+number [0-9]+
+vowel [AEIOUaeiou]
+consonant [a-zA-Z]
+
+%%
+{vowel} { cv++; }
+{consonant} { cc++; }
+\n { return 0; }
+
+%%
+int main() {
+    printf("Enter a string : ");
+    yylex();
+    printf("Vowels Count : %d \n", cv);
+    printf("Consonants Count : %d \n", cc);
+    return 0;
+}
+
+
+
+
+Odd Even:
+spcc.l:
+%option noyywrap
+%{
+    #include <stdio.h>
+    #include <stdlib.h>
+    int num;
+%}
+
+NUMS [0-9]+
+
+%%
+{NUMS} {
+    num = atoi(yytext);
+    if(num % 2 == 0) {
+        printf("Number is Even \n");
+    }
+    else {
+        printf("Number is Odd \n");
+    }
+}
+
+%%
+int main() {
+    printf("Enter a number ");
+    yylex();
+    return 0;
+}
+
+
+
+STRING END WITH ABB:
+spcc.l:
+%option noyywrap
+%{
+    #include <stdio.h>
+%}
+
+ABB [a-zA-Z]*abb
+NOT [a-zA-Z]*
+
+%%
+
+{ABB} {
+    printf("Accepted : String Ends With abb \n");
+}
+{NOT} {
+    printf("Rejected : String does not end with abb \n");
+}
+
+%%
+
+int main() {
+    printf("Enter a String :");
+    yylex();
+    return 0;
+}
+
+
+
+
+Words of lengthn 3 (start with A):
+spcc.l:
+%option noyywrap
+%{
+    #include <stdio.h>
+%}
+
+YES A[a-zA-Z]{2}
+NO [a-zA-Z]+
+
+%%
+
+{YES} {
+    printf("Match Found : %s \n", yytext);
+}
+{NO} {
+    printf("Match Not Found : %s \n", yytext);
+}
+
+%%
+
+int main() {
+    printf("Enter text :");
+    yylex();
+    return 0;
+}
+
+
+
+
+
+
+uppercase and lowercase tokens:
+sppc.l:
+%option noyywrap
+%{
+    #include <stdio.h>
+    int upper_count = 0;
+    int lower_count = 0;
+%}
+
+%%
+
+"STOP" {
+    return 0;
+}
+
+[A-Z]+ {
+    upper_count++;
+    printf("Found uppercase token : %s \n", yytext);
+}
+
+[a-z]+ {
+    lower_count++;
+    printf("Found lowercase token : %s \n", yytext);
+}
+
+[a-zA-Z]+ {
+    printf("It is a mixed Text ");
+}
+
+
+
+
+%%
+
+int main() {
+    printf("Enter the text: Type 'STOP' to see final ans.\n");
+    yylex();
+    
+    printf("Total uppercase tokens : %d \n", upper_count);
+    printf("Total lowercase tokens : %d \n", lower_count);
+    
+    return 0;
+}
+
+
+
+
+
+NO OF LINES IN A CODE:
+%option noyywrap
+%{
+    #include <stdio.h>
+    int line_count = 0;
+%}
+
+%%
+
+"STOP" {
+    return 0;
+}
+
+\n { line_count++; }
+
+. { 
+    /* Good practice: Ignore other characters so they don't echo to the console */ 
+}
+
+%%
+
+int main() {
+    printf("Enter your code (Type STOP to get ans) : ");
+    yylex();
+    printf("\n Total number of lines: %d \n", line_count);
+    return 0;
+}
+
+
+
+
+
+TO IDENTIFY THE KEYWORDS:
+%option noyywrap
+%{
+    #include <stdio.h>
+    int n_keywords = 0;
+%}
+
+KEYWORD (if|else|while|do|for|int|float|char|return|void|main|printf|scanf)
+
+%%
+
+{KEYWORD} {
+    printf("keyword : %s \n", yytext);
+    n_keywords++;
+}
+
+.|\n { 
+    
+}
+
+%%
+
+int main() {
+    printf("Enter code to analyze : \n");
+    yylex();
+    return 0;
+}
+
+
+
+
+
